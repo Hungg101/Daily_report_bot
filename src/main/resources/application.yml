@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: daily-report-telegram-bot
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/daily_report_bot}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+telegram:
+  bot:
+    username: ${TELEGRAM_BOT_USERNAME:}
+    token: ${TELEGRAM_BOT_TOKEN:}
+    mini-app-url: ${TELEGRAM_MINI_APP_URL:http://localhost:8080/miniapp/}
+
+logging:
+  level:
+    com.example.dailyreportbot: INFO
