@@ -9,8 +9,6 @@ public class TelegramBotProperties {
 
     private String token;
 
-    private String miniAppUrl;
-
     public String getUsername() {
         return username;
     }
@@ -25,13 +23,5 @@ public class TelegramBotProperties {
 
     public void setToken(String token) {
         this.token = token;
-    }
-
-    public String getMiniAppUrl() {
-        return miniAppUrl;
-    }
-
-    public void setMiniAppUrl(String miniAppUrl) {
-        this.miniAppUrl = miniAppUrl;
     }
 }

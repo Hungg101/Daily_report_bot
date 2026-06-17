@@ -8,7 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
@@ -42,24 +44,81 @@ public class DailyReportBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        if (update == null || !update.hasMessage()) {
+        if (update == null) {
+            return;
+        }
+
+        if (update.hasCallbackQuery()) {
+            handleCallbackQuery(update.getCallbackQuery());
+            return;
+        }
+
+        if (!update.hasMessage()) {
             return;
         }
 
         Message message = update.getMessage();
-        userRegistrationService.registerIfNew(message.getFrom());
+        registerTelegramUser(message);
 
-        if (!message.hasText() && message.getWebAppData() == null) {
+        if (!message.hasText()) {
             return;
         }
 
         logIncomingMessage(message);
 
-        SendMessage response = commandService.createResponse(message);
+        commandService.createResponse(message)
+                .ifPresent(response -> sendResponse(message, response));
+    }
+
+    private void handleCallbackQuery(CallbackQuery callbackQuery) {
+        if (callbackQuery == null) {
+            return;
+        }
+
+        registerTelegramUser(callbackQuery.getFrom());
+        answerCallbackQuery(callbackQuery);
+
+        commandService.createResponse(callbackQuery)
+                .ifPresent(response -> sendResponse(resolveCallbackChatId(callbackQuery), response));
+    }
+
+    private void registerTelegramUser(Message message) {
+        registerTelegramUser(message.getFrom());
+    }
+
+    private void registerTelegramUser(User user) {
+        try {
+            userRegistrationService.registerIfNew(user);
+        } catch (RuntimeException exception) {
+            Long userId = user != null ? user.getId() : null;
+            String username = user != null ? user.getUserName() : null;
+            log.error("Cannot register Telegram user - userId={}, username={}", userId, username, exception);
+        }
+    }
+
+    private void sendResponse(Message message, SendMessage response) {
+        sendResponse(message.getChatId(), response);
+    }
+
+    private void sendResponse(Long chatId, SendMessage response) {
         try {
             execute(response);
         } catch (TelegramApiException exception) {
-            log.error("Cannot send Telegram response to chatId={}", message.getChatId(), exception);
+            log.error("Cannot send Telegram response to chatId={}", chatId, exception);
+        }
+    }
+
+    private void answerCallbackQuery(CallbackQuery callbackQuery) {
+        if (!StringUtils.hasText(callbackQuery.getId())) {
+            return;
+        }
+
+        AnswerCallbackQuery answer = new AnswerCallbackQuery();
+        answer.setCallbackQueryId(callbackQuery.getId());
+        try {
+            execute(answer);
+        } catch (TelegramApiException exception) {
+            log.error("Cannot answer Telegram callbackQueryId={}", callbackQuery.getId(), exception);
         }
     }
 
@@ -82,11 +141,11 @@ public class DailyReportBot extends TelegramLongPollingBot {
             return message.getText();
         }
 
-        if (message.getWebAppData() != null) {
-            return message.getWebAppData().getData();
-        }
-
         return null;
+    }
+
+    private Long resolveCallbackChatId(CallbackQuery callbackQuery) {
+        return callbackQuery.getMessage() != null ? callbackQuery.getMessage().getChatId() : null;
     }
 
     private static String requireToken(TelegramBotProperties properties) {

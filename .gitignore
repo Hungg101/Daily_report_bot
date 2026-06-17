@@ -9,3 +9,15 @@ target/
 .env
 application-local.yml
 src/main/resources/application-local.yml
+
+# Local project documentation and generated reading pages
+/README.md
+/Instruction.md
+/Spec.md
+/process.md
+/AIcontext.md
+/report.md
+/reference.md
+/SKILL.md
+/docs/
+/scripts/convert-md-to-html.mjs

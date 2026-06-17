@@ -64,20 +64,11 @@ if ([string]::IsNullOrWhiteSpace($env:SPRING_DATASOURCE_URL)) {
     $env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/daily_report_bot"
 }
 
-if ([string]::IsNullOrWhiteSpace($env:TELEGRAM_MINI_APP_URL)) {
-    $env:TELEGRAM_MINI_APP_URL = "http://localhost:8080/miniapp/"
-}
-
 Write-Host "Config loaded:"
 Write-Host " - TELEGRAM_BOT_USERNAME=$env:TELEGRAM_BOT_USERNAME"
 Write-Host " - TELEGRAM_BOT_TOKEN=<hidden>"
 Write-Host " - SPRING_DATASOURCE_URL=$env:SPRING_DATASOURCE_URL"
 Write-Host " - SPRING_DATASOURCE_USERNAME=$env:SPRING_DATASOURCE_USERNAME"
-Write-Host " - TELEGRAM_MINI_APP_URL=$env:TELEGRAM_MINI_APP_URL"
-
-if ($env:TELEGRAM_MINI_APP_URL.StartsWith("http://localhost")) {
-    Write-Host "Note: localhost mini app URL is only for browser preview. Telegram Mini App needs public HTTPS." -ForegroundColor Yellow
-}
 
 Write-Host "Starting Daily Report Telegram Bot..."
 Write-Host "Press Ctrl+C to stop."

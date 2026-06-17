@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+target
+
+.env
+*.log
+*.class
+*.iml
+
+application-local.yml
+src/main/resources/application-local.yml

@@ -6,6 +6,9 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
   jpa:
     hibernate:
       ddl-auto: update
@@ -18,7 +21,9 @@ telegram:
   bot:
     username: ${TELEGRAM_BOT_USERNAME:}
     token: ${TELEGRAM_BOT_TOKEN:}
-    mini-app-url: ${TELEGRAM_MINI_APP_URL:http://localhost:8080/miniapp/}
+
+app:
+  report-time-zone: ${APP_REPORT_TIME_ZONE:Asia/Ho_Chi_Minh}
 
 logging:
   level:
