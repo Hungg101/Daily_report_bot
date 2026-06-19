@@ -27,6 +27,8 @@ public class TelegramCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(TelegramCommandService.class);
     private static final Duration REPORT_SESSION_TIMEOUT = Duration.ofMinutes(30);
+    private static final int RECENT_REPORTS_LIMIT = 5;
+    private static final int RECENT_REPORT_CONTENT_PREVIEW_LIMIT = 240;
     private static final DateTimeFormatter LATEST_REPORT_CREATED_AT_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final String CALLBACK_COMMAND_PREFIX = "command:";
@@ -36,10 +38,11 @@ public class TelegramCommandService {
     private static final String REPORT_COMMAND = "/report";
     private static final String CANCEL_COMMAND = "/cancel";
     private static final String LAST_COMMAND = "/last";
+    private static final String MY_REPORTS_COMMAND = "/myreports";
     private static final String MINI_APP_COMMAND = "/miniapp";
 
     private static final String START_MESSAGE = "Xin chào! Đây là bot báo cáo công việc hằng ngày.";
-    private static final String HELP_MESSAGE = "Danh sách lệnh:\n/start\n/help\n/report\n/cancel\n/last\n\nGửi /report trước mỗi lần muốn nhập báo cáo mới.";
+    private static final String HELP_MESSAGE = "Danh sách lệnh:\n/start\n/help\n/report\n/cancel\n/last\n/myreports\n\nGửi /report trước mỗi lần muốn nhập báo cáo mới.";
     private static final String REPORT_MESSAGE = "Vui lòng nhập nội dung báo cáo hôm nay.";
     private static final String REPORT_SAVED_MESSAGE = "Đã lưu báo cáo hôm nay.";
     private static final String BLANK_REPORT_MESSAGE = "Nội dung báo cáo không được để trống.";
@@ -48,6 +51,8 @@ public class TelegramCommandService {
     private static final String NO_ACTIVE_REPORT_SESSION_MESSAGE = "Không có phiên nhập báo cáo nào đang mở.";
     private static final String NO_LATEST_REPORT_MESSAGE = "Chưa tìm thấy báo cáo nào của bạn.";
     private static final String LATEST_REPORT_FAILED_MESSAGE = "Không thể lấy báo cáo gần nhất lúc này. Vui lòng thử lại sau.";
+    private static final String NO_RECENT_REPORTS_MESSAGE = "Chưa tìm thấy báo cáo nào của bạn.";
+    private static final String RECENT_REPORTS_FAILED_MESSAGE = "Không thể lấy danh sách báo cáo lúc này. Vui lòng thử lại sau.";
     private static final String REPORT_SAVE_FAILED_MESSAGE = "Không thể lưu báo cáo lúc này. Vui lòng thử lại sau.";
     private static final String USER_NOT_FOUND_MESSAGE = "Không tìm thấy người dùng Telegram.";
     private static final String MINI_APP_DISABLED_MESSAGE = "Mini app đang tạm tắt. Hãy dùng /report để gửi báo cáo trong chat Telegram.";
@@ -68,6 +73,7 @@ public class TelegramCommandService {
                 new BotCommand("report", "Gửi báo cáo công việc hôm nay"),
                 new BotCommand("cancel", "Hủy phiên nhập báo cáo hiện tại"),
                 new BotCommand("last", "Xem báo cáo gần nhất của bạn"),
+                new BotCommand("myreports", "Xem 5 báo cáo gần đây của bạn"),
                 new BotCommand("miniapp", "Mini App đang tạm tắt")
         );
     }
@@ -132,6 +138,10 @@ public class TelegramCommandService {
                 clearReportSession(sessionKey);
                 yield findLatestReport(telegramUserId);
             }
+            case MY_REPORTS_COMMAND -> {
+                clearReportSession(sessionKey);
+                yield findRecentReports(telegramUserId);
+            }
             case MINI_APP_COMMAND -> {
                 clearReportSession(sessionKey);
                 yield MINI_APP_DISABLED_MESSAGE;
@@ -144,12 +154,13 @@ public class TelegramCommandService {
         List<List<InlineKeyboardButton>> rows = switch (command) {
             case HELP_COMMAND -> List.of(
                     List.of(commandButton("📝 Gửi báo cáo", REPORT_COMMAND), commandButton("📄 Báo cáo gần nhất", LAST_COMMAND)),
+                    List.of(commandButton("📚 5 báo cáo gần đây", MY_REPORTS_COMMAND)),
                     List.of(commandButton("✖️ Hủy nhập", CANCEL_COMMAND), commandButton("🏠 Bắt đầu", START_COMMAND))
             );
             case REPORT_COMMAND -> List.of(
                     List.of(commandButton("✖️ Hủy nhập", CANCEL_COMMAND), commandButton("ℹ️ Trợ giúp", HELP_COMMAND))
             );
-            case CANCEL_COMMAND, LAST_COMMAND, START_COMMAND, MINI_APP_COMMAND -> List.of(
+            case CANCEL_COMMAND, LAST_COMMAND, MY_REPORTS_COMMAND, START_COMMAND, MINI_APP_COMMAND -> List.of(
                     List.of(commandButton("📝 Gửi báo cáo", REPORT_COMMAND), commandButton("ℹ️ Trợ giúp", HELP_COMMAND))
             );
             default -> createTextResponseKeyboard(responseText);
@@ -164,6 +175,7 @@ public class TelegramCommandService {
         if (REPORT_SAVED_MESSAGE.equals(responseText)) {
             return List.of(
                     List.of(commandButton("📝 Gửi báo cáo tiếp", REPORT_COMMAND), commandButton("📄 Xem báo cáo", LAST_COMMAND)),
+                    List.of(commandButton("📚 5 báo cáo gần đây", MY_REPORTS_COMMAND)),
                     List.of(commandButton("ℹ️ Trợ giúp", HELP_COMMAND))
             );
         }
@@ -231,6 +243,24 @@ public class TelegramCommandService {
         }
     }
 
+    private String findRecentReports(Long telegramUserId) {
+        if (telegramUserId == null) {
+            return USER_NOT_FOUND_MESSAGE;
+        }
+
+        try {
+            List<DailyReport> reports = dailyReportService.findRecentForTelegramUser(telegramUserId, RECENT_REPORTS_LIMIT);
+            if (reports.isEmpty()) {
+                return NO_RECENT_REPORTS_MESSAGE;
+            }
+
+            return formatRecentReports(reports);
+        } catch (RuntimeException exception) {
+            log.error("Cannot get recent Telegram reports - telegramUserId={}", telegramUserId, exception);
+            return RECENT_REPORTS_FAILED_MESSAGE;
+        }
+    }
+
     private String formatLatestReport(DailyReport report) {
         StringBuilder message = new StringBuilder("Báo cáo gần nhất:");
         if (report.getReportDate() != null) {
@@ -242,6 +272,34 @@ public class TelegramCommandService {
         }
         message.append("\nNội dung:\n").append(report.getContent());
         return message.toString();
+    }
+
+    private String formatRecentReports(List<DailyReport> reports) {
+        StringBuilder message = new StringBuilder("5 báo cáo gần đây của bạn:");
+        for (int index = 0; index < reports.size(); index += 1) {
+            DailyReport report = reports.get(index);
+            message.append("\n\n").append(index + 1).append(". ");
+            if (report.getReportDate() != null) {
+                message.append("Ngày báo cáo: ").append(report.getReportDate());
+            } else {
+                message.append("Báo cáo");
+            }
+            if (report.getCreatedAt() != null) {
+                message.append("\nThời gian lưu: ")
+                        .append(report.getCreatedAt().format(LATEST_REPORT_CREATED_AT_FORMATTER));
+            }
+            message.append("\nNội dung:\n").append(createContentPreview(report.getContent()));
+        }
+        return message.toString();
+    }
+
+    private String createContentPreview(String content) {
+        String normalizedContent = content == null ? "" : content.strip();
+        if (normalizedContent.length() <= RECENT_REPORT_CONTENT_PREVIEW_LIMIT) {
+            return normalizedContent;
+        }
+
+        return normalizedContent.substring(0, RECENT_REPORT_CONTENT_PREVIEW_LIMIT).stripTrailing() + "...";
     }
 
     private String submitPendingReport(ReportSessionKey sessionKey, Long telegramUserId, String text) {

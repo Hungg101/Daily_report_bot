@@ -55,7 +55,7 @@ class TelegramCommandServiceTest {
 
         assertThat(commands)
                 .extracting(BotCommand::getCommand)
-                .containsExactly("start", "help", "report", "cancel", "last", "miniapp");
+                .containsExactly("start", "help", "report", "cancel", "last", "myreports", "miniapp");
         assertThat(commands)
                 .extracting(BotCommand::getDescription)
                 .containsExactly(
@@ -64,6 +64,7 @@ class TelegramCommandServiceTest {
                         "Gửi báo cáo công việc hôm nay",
                         "Hủy phiên nhập báo cáo hiện tại",
                         "Xem báo cáo gần nhất của bạn",
+                        "Xem 5 báo cáo gần đây của bạn",
                         "Mini App đang tạm tắt"
                 );
     }
@@ -73,9 +74,9 @@ class TelegramCommandServiceTest {
         SendMessage response = service.createResponse(createMessage("/help")).orElseThrow();
 
         assertThat(response.getText()).contains("/start", "/help", "/report");
-        assertThat(response.getText()).contains("/cancel", "/last");
+        assertThat(response.getText()).contains("/cancel", "/last", "/myreports");
         assertThat(response.getText()).doesNotContain("/miniapp");
-        assertKeyboardContainsCallbacks(response, "command:/report", "command:/last", "command:/cancel", "command:/start");
+        assertKeyboardContainsCallbacks(response, "command:/report", "command:/last", "command:/myreports", "command:/cancel", "command:/start");
     }
 
     @Test
@@ -149,6 +150,77 @@ class TelegramCommandServiceTest {
     }
 
     @Test
+    void shouldShowRecentReports() {
+        DailyReport latestReport = new DailyReport();
+        latestReport.setReportDate(LocalDate.of(2026, 6, 17));
+        latestReport.setCreatedAt(LocalDateTime.of(2026, 6, 17, 9, 15));
+        latestReport.setContent("Báo cáo mới nhất");
+
+        DailyReport previousReport = new DailyReport();
+        previousReport.setReportDate(LocalDate.of(2026, 6, 16));
+        previousReport.setCreatedAt(LocalDateTime.of(2026, 6, 16, 18, 0));
+        previousReport.setContent("Báo cáo hôm qua");
+
+        when(dailyReportService.findRecentForTelegramUser(12345L, 5))
+                .thenReturn(List.of(latestReport, previousReport));
+
+        SendMessage response = service.createResponse(createMessage("/myreports")).orElseThrow();
+
+        assertThat(response.getText()).isEqualTo("""
+                5 báo cáo gần đây của bạn:
+
+                1. Ngày báo cáo: 2026-06-17
+                Thời gian lưu: 2026-06-17 09:15
+                Nội dung:
+                Báo cáo mới nhất
+
+                2. Ngày báo cáo: 2026-06-16
+                Thời gian lưu: 2026-06-16 18:00
+                Nội dung:
+                Báo cáo hôm qua""");
+        assertKeyboardContainsCallbacks(response, "command:/report", "command:/help");
+        verify(dailyReportService).findRecentForTelegramUser(12345L, 5);
+    }
+
+    @Test
+    void shouldTruncateLongRecentReportContent() {
+        DailyReport report = new DailyReport();
+        report.setReportDate(LocalDate.of(2026, 6, 17));
+        report.setContent("a".repeat(260));
+        when(dailyReportService.findRecentForTelegramUser(12345L, 5)).thenReturn(List.of(report));
+
+        SendMessage response = service.createResponse(createMessage("/myreports")).orElseThrow();
+
+        assertThat(response.getText()).contains("a".repeat(240) + "...");
+        assertThat(response.getText()).doesNotContain("a".repeat(241));
+        verify(dailyReportService).findRecentForTelegramUser(12345L, 5);
+    }
+
+    @Test
+    void shouldExplainWhenRecentReportsDoNotExist() {
+        when(dailyReportService.findRecentForTelegramUser(12345L, 5)).thenReturn(List.of());
+
+        SendMessage response = service.createResponse(createMessage("/myreports")).orElseThrow();
+
+        assertThat(response.getText()).isEqualTo("Chưa tìm thấy báo cáo nào của bạn.");
+        assertKeyboardContainsCallbacks(response, "command:/report", "command:/help");
+        verify(dailyReportService).findRecentForTelegramUser(12345L, 5);
+    }
+
+    @Test
+    void shouldClearReportSessionWhenShowingRecentReports() {
+        when(dailyReportService.findRecentForTelegramUser(12345L, 5)).thenReturn(List.of());
+
+        service.createResponse(createMessage("/report"));
+        SendMessage recentReportsResponse = service.createResponse(createMessage("/myreports")).orElseThrow();
+        SendMessage textResponse = service.createResponse(createMessage("Không được lưu")).orElseThrow();
+
+        assertThat(recentReportsResponse.getText()).isEqualTo("Chưa tìm thấy báo cáo nào của bạn.");
+        assertThat(textResponse.getText()).isEqualTo("Vui lòng gửi /report trước khi nhập báo cáo mới.");
+        verify(dailyReportService).findRecentForTelegramUser(12345L, 5);
+    }
+
+    @Test
     void shouldClearReportSessionWhenShowingLatestReport() {
         when(dailyReportService.findLatestForTelegramUser(12345L)).thenReturn(Optional.empty());
 
@@ -170,7 +242,7 @@ class TelegramCommandServiceTest {
         SendMessage response = service.createResponse(createMessage("Hôm nay tôi đã hoàn thành API.")).orElseThrow();
 
         assertThat(response.getText()).isEqualTo("Đã lưu báo cáo hôm nay.");
-        assertKeyboardContainsCallbacks(response, "command:/report", "command:/last", "command:/help");
+        assertKeyboardContainsCallbacks(response, "command:/report", "command:/last", "command:/myreports", "command:/help");
         verify(dailyReportService).submitToday(12345L, "Hôm nay tôi đã hoàn thành API.");
     }
 
@@ -220,6 +292,18 @@ class TelegramCommandServiceTest {
         assertThat(response.getChatId()).isEqualTo("1001");
         assertThat(response.getText()).isEqualTo("Vui lòng nhập nội dung báo cáo hôm nay.");
         assertKeyboardContainsCallbacks(response, "command:/cancel", "command:/help");
+    }
+
+    @Test
+    void shouldCreateRecentReportsResponseFromInlineKeyboardCallback() {
+        when(dailyReportService.findRecentForTelegramUser(12345L, 5)).thenReturn(List.of());
+
+        SendMessage response = service.createResponse(createCallbackQuery("/myreports")).orElseThrow();
+
+        assertThat(response.getChatId()).isEqualTo("1001");
+        assertThat(response.getText()).isEqualTo("Chưa tìm thấy báo cáo nào của bạn.");
+        assertKeyboardContainsCallbacks(response, "command:/report", "command:/help");
+        verify(dailyReportService).findRecentForTelegramUser(12345L, 5);
     }
 
     @Test

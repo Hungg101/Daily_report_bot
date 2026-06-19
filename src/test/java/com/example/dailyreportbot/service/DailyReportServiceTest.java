@@ -11,7 +11,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
+
+import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -84,6 +87,36 @@ class DailyReportServiceTest {
 
         assertThat(latestReport).containsSame(dailyReport);
         verify(dailyReportRepository).findFirstByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L);
+    }
+
+    @Test
+    void shouldFindRecentReportsForTelegramUser() {
+        DailyReport firstReport = new DailyReport();
+        DailyReport secondReport = new DailyReport();
+        when(dailyReportRepository.findByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L, PageRequest.of(0, 2)))
+                .thenReturn(List.of(firstReport, secondReport));
+
+        List<DailyReport> reports = service.findRecentForTelegramUser(12345L, 2);
+
+        assertThat(reports).containsExactly(firstReport, secondReport);
+        verify(dailyReportRepository)
+                .findByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L, PageRequest.of(0, 2));
+    }
+
+    @Test
+    void shouldReturnEmptyRecentReportsWhenTelegramUserIdIsMissing() {
+        List<DailyReport> reports = service.findRecentForTelegramUser(null, 5);
+
+        assertThat(reports).isEmpty();
+        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
+    }
+
+    @Test
+    void shouldReturnEmptyRecentReportsWhenLimitIsInvalid() {
+        List<DailyReport> reports = service.findRecentForTelegramUser(12345L, 0);
+
+        assertThat(reports).isEmpty();
+        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
     }
 
     @Test

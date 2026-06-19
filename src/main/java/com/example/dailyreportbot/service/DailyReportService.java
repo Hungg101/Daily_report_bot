@@ -6,12 +6,14 @@ import com.example.dailyreportbot.repository.DailyReportRepository;
 import com.example.dailyreportbot.repository.TelegramUserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -51,6 +53,18 @@ public class DailyReportService {
         }
 
         return dailyReportRepository.findFirstByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(telegramUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DailyReport> findRecentForTelegramUser(Long telegramUserId, int limit) {
+        if (telegramUserId == null || limit <= 0) {
+            return List.of();
+        }
+
+        return dailyReportRepository.findByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(
+                telegramUserId,
+                PageRequest.of(0, limit)
+        );
     }
 
     private DailyReportSubmissionStatus saveReport(TelegramUser telegramUser, String content) {
