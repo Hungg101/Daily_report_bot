@@ -20,16 +20,27 @@
         }
     ];
 
+    function readTelegramContext() {
+        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        const initData = tg && typeof tg.initData === "string" ? tg.initData : "";
+        const platform = tg && typeof tg.platform === "string" ? tg.platform : "";
+        const hasInitData = initData.length > 0;
+        const isTelegramShell = Boolean(tg && platform && platform !== "unknown");
+
+        return {
+            tg,
+            hasInitData,
+            isTelegramShell,
+            canSendData: Boolean(tg && typeof tg.sendData === "function" && (hasInitData || isTelegramShell))
+        };
+    }
+
     function App() {
-        const telegram = useMemo(() => {
-            const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-            return {
-                tg,
-                isRuntime: Boolean(tg && tg.initData)
-            };
-        }, []);
+        const telegram = useMemo(readTelegramContext, []);
         const [content, setContent] = useState("");
-        const [status, setStatus] = useState({message: "", type: ""});
+        const [status, setStatus] = useState(() => telegram.canSendData
+            ? {message: "Sẵn sàng gửi về bot Telegram.", type: "success"}
+            : {message: "Bản xem thử: dữ liệu chưa gửi về bot và database.", type: "warning"});
         const contentRef = useRef(content);
 
         const dateText = useMemo(() => new Intl.DateTimeFormat("vi-VN", {
@@ -40,7 +51,7 @@
         }).format(new Date()), []);
 
         const identity = useMemo(() => {
-            if (!telegram.isRuntime) {
+            if (!telegram.tg) {
                 return "Đang xem thử trên trình duyệt";
             }
 
@@ -49,12 +60,17 @@
                 : null;
 
             if (!user) {
-                return "Đang mở trong Telegram";
+                return telegram.isTelegramShell
+                    ? "Đang mở trong Telegram"
+                    : "Đang xem thử trên trình duyệt";
             }
 
             const displayName = [user.first_name, user.last_name].filter(Boolean).join(" ");
-            return user.username ? `${displayName} (@${user.username})` : displayName;
+            return user.username ? `${displayName || "Telegram user"} (@${user.username})` : displayName;
         }, [telegram]);
+
+        const runtimeText = telegram.canSendData ? "Telegram" : "Xem thử";
+        const submitButtonText = telegram.canSendData ? "Gửi báo cáo" : "Lưu nháp";
 
         useEffect(() => {
             contentRef.current = content;
@@ -76,37 +92,50 @@
                 submittedAt: new Date().toISOString()
             });
 
-            if (telegram.isRuntime && typeof telegram.tg.sendData === "function") {
-                telegram.tg.sendData(payload);
-                setStatus({
-                    message: "Đã gửi báo cáo về bot.",
-                    type: ""
-                });
+            if (telegram.canSendData) {
+                try {
+                    telegram.tg.sendData(payload);
+                    setStatus({
+                        message: "Đã gửi báo cáo về bot.",
+                        type: "success"
+                    });
 
-                if (typeof telegram.tg.close === "function") {
-                    window.setTimeout(() => telegram.tg.close(), 450);
+                    if (typeof telegram.tg.close === "function") {
+                        window.setTimeout(() => telegram.tg.close(), 450);
+                    }
+                    return;
+                } catch (error) {
+                    console.error("Cannot send data to Telegram WebApp.", error);
+                    setStatus({
+                        message: "Chưa gửi được về bot. Hãy mở bằng nút /miniapp trong chat Telegram.",
+                        type: "error"
+                    });
+                    return;
                 }
-                return;
             }
 
             window.localStorage.setItem("daily-report-miniapp-demo", payload);
             setStatus({
-                message: "Bản xem thử đã lưu trong trình duyệt. Mở bằng Telegram để gửi về bot.",
+                message: "Đã lưu nháp trong trình duyệt. Database chưa cập nhật.",
                 type: "warning"
             });
         }, [telegram]);
 
         useEffect(() => {
-            if (!telegram.isRuntime) {
+            if (!telegram.tg) {
                 return;
             }
 
-            telegram.tg.ready();
-            telegram.tg.expand();
+            try {
+                telegram.tg.ready();
+                telegram.tg.expand();
+            } catch (error) {
+                console.warn("Telegram WebApp ready/expand failed.", error);
+            }
         }, [telegram]);
 
         useEffect(() => {
-            if (!telegram.isRuntime || !telegram.tg.MainButton) {
+            if (!telegram.canSendData || !telegram.tg.MainButton) {
                 return undefined;
             }
 
@@ -122,7 +151,7 @@
         }, [submitReport, telegram]);
 
         useEffect(() => {
-            if (!telegram.isRuntime || !telegram.tg.MainButton) {
+            if (!telegram.canSendData || !telegram.tg.MainButton) {
                 return;
             }
 
@@ -137,7 +166,9 @@
             setContent((current) => current.trim()
                 ? `${current.trim()}\n\n${template}`
                 : template);
-            setStatus({message: "", type: ""});
+            setStatus(telegram.canSendData
+                ? {message: "Sẵn sàng gửi về bot Telegram.", type: "success"}
+                : {message: "Bản xem thử: dữ liệu chưa gửi về bot và database.", type: "warning"});
         };
 
         const clearContent = () => {
@@ -148,13 +179,20 @@
         return h("main", {className: "app"}, [
             h("section", {className: "topbar", "aria-label": "Thông tin báo cáo", key: "topbar"}, [
                 h("div", {key: "title"}, [
+                    h("p", {className: "eyebrow", key: "eyebrow"}, "Daily Report"),
                     h("h1", {key: "heading"}, "Báo cáo hôm nay"),
                     h("div", {className: "identity", key: "identity"}, identity)
                 ]),
-                h("div", {className: "date-pill", key: "date"}, dateText)
+                h("div", {className: "meta", key: "meta"}, [
+                    h("div", {className: "date-pill", key: "date"}, dateText),
+                    h("div", {className: "runtime-pill", key: "runtime"}, runtimeText)
+                ])
             ]),
             h("section", {className: "form", "aria-label": "Nội dung báo cáo", key: "form"}, [
-                h("label", {htmlFor: "reportContent", key: "label"}, "Nội dung"),
+                h("div", {className: "form-head", key: "form-head"}, [
+                    h("label", {htmlFor: "reportContent", key: "label"}, "Nội dung"),
+                    h("div", {className: "count", key: "count"}, `${content.trim().length} ký tự`)
+                ]),
                 h("textarea", {
                     id: "reportContent",
                     placeholder: "Hôm nay bạn đã làm gì?",
@@ -183,7 +221,7 @@
                     disabled: !content.trim(),
                     onClick: submitReport,
                     key: "submit"
-                }, "Gửi báo cáo")
+                }, submitButtonText)
             ])
         ]);
     }
