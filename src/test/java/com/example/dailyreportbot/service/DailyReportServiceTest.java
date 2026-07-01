@@ -104,6 +104,21 @@ class DailyReportServiceTest {
     }
 
     @Test
+    void shouldFindReportsForTelegramUserOnDate() {
+        LocalDate reportDate = LocalDate.of(2026, 6, 17);
+        DailyReport firstReport = new DailyReport();
+        DailyReport secondReport = new DailyReport();
+        when(dailyReportRepository.findByTelegramUser_TelegramUserIdAndReportDateOrderByCreatedAtDesc(12345L, reportDate))
+                .thenReturn(List.of(firstReport, secondReport));
+
+        List<DailyReport> reports = service.findForTelegramUserOnDate(12345L, reportDate);
+
+        assertThat(reports).containsExactly(firstReport, secondReport);
+        verify(dailyReportRepository)
+                .findByTelegramUser_TelegramUserIdAndReportDateOrderByCreatedAtDesc(12345L, reportDate);
+    }
+
+    @Test
     void shouldReturnEmptyRecentReportsWhenTelegramUserIdIsMissing() {
         List<DailyReport> reports = service.findRecentForTelegramUser(null, 5);
 
@@ -114,6 +129,22 @@ class DailyReportServiceTest {
     @Test
     void shouldReturnEmptyRecentReportsWhenLimitIsInvalid() {
         List<DailyReport> reports = service.findRecentForTelegramUser(12345L, 0);
+
+        assertThat(reports).isEmpty();
+        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
+    }
+
+    @Test
+    void shouldReturnEmptyReportsByDateWhenTelegramUserIdIsMissing() {
+        List<DailyReport> reports = service.findForTelegramUserOnDate(null, LocalDate.of(2026, 6, 17));
+
+        assertThat(reports).isEmpty();
+        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
+    }
+
+    @Test
+    void shouldReturnEmptyReportsByDateWhenReportDateIsMissing() {
+        List<DailyReport> reports = service.findForTelegramUserOnDate(12345L, null);
 
         assertThat(reports).isEmpty();
         verifyNoInteractions(dailyReportRepository, telegramUserRepository);

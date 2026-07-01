@@ -67,6 +67,18 @@ public class DailyReportService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<DailyReport> findForTelegramUserOnDate(Long telegramUserId, LocalDate reportDate) {
+        if (telegramUserId == null || reportDate == null) {
+            return List.of();
+        }
+
+        return dailyReportRepository.findByTelegramUser_TelegramUserIdAndReportDateOrderByCreatedAtDesc(
+                telegramUserId,
+                reportDate
+        );
+    }
+
     private DailyReportSubmissionStatus saveReport(TelegramUser telegramUser, String content) {
         DailyReport dailyReport = new DailyReport();
         dailyReport.setTelegramUser(telegramUser);
