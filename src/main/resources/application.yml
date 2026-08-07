@@ -2,16 +2,22 @@ spring:
   application:
     name: daily-report-telegram-bot
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/daily_report_bot}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/daily_report_bot}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
   sql:
     init:
-      mode: always
+      mode: never
+  flyway:
+    enabled: true
+    locations: classpath:db/migration,classpath:db/postgresql-migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
@@ -21,9 +27,24 @@ telegram:
   bot:
     username: ${TELEGRAM_BOT_USERNAME:}
     token: ${TELEGRAM_BOT_TOKEN:}
+    mini-app-enabled: false
+    mini-app-url: ${TELEGRAM_BOT_MINI_APP_URL:}
 
 app:
   report-time-zone: ${APP_REPORT_TIME_ZONE:Asia/Ho_Chi_Minh}
+  reminder:
+    enabled: ${APP_REMINDER_ENABLED:false}
+    department: ${APP_REMINDER_DEPARTMENT:}
+    unit: ${APP_REMINDER_UNIT:}
+    time-zone: Asia/Ho_Chi_Minh
+    initial-cron: "0 30 16 * * MON-FRI"
+    first-retry-cron: "0 35 16 * * MON-FRI"
+    final-retry-cron: "0 50 16 * * MON-FRI"
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_API_MODEL:gemini-3.6-flash}
 
 logging:
   level:

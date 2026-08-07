@@ -1,160 +1,267 @@
 package com.example.dailyreportbot.service;
 
 import com.example.dailyreportbot.entity.DailyReport;
-import com.example.dailyreportbot.entity.TelegramUser;
+import com.example.dailyreportbot.entity.User;
+import com.example.dailyreportbot.entity.UserStatus;
 import com.example.dailyreportbot.repository.DailyReportRepository;
-import com.example.dailyreportbot.repository.TelegramUserRepository;
+import com.example.dailyreportbot.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.data.domain.PageRequest;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class DailyReportServiceTest {
 
-    private final DailyReportRepository dailyReportRepository = mock(DailyReportRepository.class);
-    private final TelegramUserRepository telegramUserRepository = mock(TelegramUserRepository.class);
-    private final Clock reportClock = Clock.fixed(
-            Instant.parse("2026-06-16T17:30:00Z"),
-            ZoneId.of("Asia/Ho_Chi_Minh")
-    );
-    private final DailyReportService service = new DailyReportService(
-            dailyReportRepository,
-            telegramUserRepository,
-            reportClock
-    );
+    private DailyReportRepository reportRepository;
+    private UserRepository userRepository;
+    private DailyReportService service;
+
+    @BeforeEach
+    void setUp() {
+        reportRepository = mock(DailyReportRepository.class);
+        userRepository = mock(UserRepository.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-06-16T17:30:00Z"), ZoneId.of("Asia/Ho_Chi_Minh"));
+        service = new DailyReportService(reportRepository, userRepository, clock);
+    }
 
     @Test
-    void shouldSaveDailyReport() {
-        TelegramUser telegramUser = new TelegramUser();
-        telegramUser.setTelegramUserId(12345L);
+    void shouldSaveReportForUser() {
+        User user = activeUser(7L, 12345L);
+        stubCurrentUser(user);
 
-        when(telegramUserRepository.findByTelegramUserId(12345L)).thenReturn(Optional.of(telegramUser));
-        DailyReportSubmissionStatus status = service.submitToday(12345L, "  Hoàn thành API báo cáo  ");
+        DailyReportSubmissionStatus status = service.submitToday(
+                12345L,
+                "  Hoàn thành API  ",
+                "Trần Thị B",
+                Instant.parse("2026-06-16T17:30:00Z")
+        );
 
         ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
-        verify(dailyReportRepository).save(captor.capture());
-
-        DailyReport savedReport = captor.getValue();
+        verify(reportRepository).save(captor.capture());
         assertThat(status).isEqualTo(DailyReportSubmissionStatus.SAVED);
-        assertThat(savedReport.getTelegramUser()).isSameAs(telegramUser);
-        assertThat(savedReport.getReportDate()).isEqualTo(LocalDate.of(2026, 6, 17));
-        assertThat(savedReport.getContent()).isEqualTo("Hoàn thành API báo cáo");
+        assertThat(captor.getValue().getUser()).isSameAs(user);
+        assertThat(captor.getValue().getReportDate()).isEqualTo(LocalDate.of(2026, 6, 17));
+        assertThat(captor.getValue().getCreatedAt()).isEqualTo(LocalDateTime.of(2026, 6, 17, 0, 30));
+        assertThat(captor.getValue().getPerformer()).isEqualTo("Telegram user ID 12345");
+        assertThat(captor.getValue().getContent()).isEqualTo("Hoàn thành API");
+        assertThat(captor.getValue().getCollaborators()).isEqualTo("Trần Thị B");
     }
 
     @Test
-    void shouldRejectBlankContent() {
-        DailyReportSubmissionStatus status = service.submitToday(12345L, "   ");
+    void shouldUseProvidedSubmissionInstantForPersistedDateAndTimestamp() {
+        User user = activeUser(7L, 12345L);
+        stubCurrentUser(user);
+        Instant submissionInstant = Instant.parse("2026-06-16T16:59:59Z");
 
-        assertThat(status).isEqualTo(DailyReportSubmissionStatus.BLANK_CONTENT);
-        verifyNoInteractions(telegramUserRepository, dailyReportRepository);
+        DailyReportSubmissionStatus status = service.submitToday(
+                12345L,
+                "Boundary report",
+                submissionInstant
+        );
+
+        ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
+        verify(reportRepository).save(captor.capture());
+        assertThat(status).isEqualTo(DailyReportSubmissionStatus.SAVED);
+        assertThat(captor.getValue().getReportDate()).isEqualTo(LocalDate.of(2026, 6, 16));
+        assertThat(captor.getValue().getCreatedAt())
+                .isEqualTo(LocalDateTime.of(2026, 6, 16, 23, 59, 59));
     }
 
     @Test
-    void shouldAllowMultipleReportsForToday() {
-        TelegramUser telegramUser = new TelegramUser();
-        telegramUser.setTelegramUserId(12345L);
+    void shouldRejectBlankContentWithoutLookingUpUser() {
+        assertThat(service.submitToday(12345L, "  ")).isEqualTo(DailyReportSubmissionStatus.BLANK_CONTENT);
 
-        when(telegramUserRepository.findByTelegramUserId(12345L)).thenReturn(Optional.of(telegramUser));
-        DailyReportSubmissionStatus firstStatus = service.submitToday(12345L, "Báo cáo lần 1");
-        DailyReportSubmissionStatus secondStatus = service.submitToday(12345L, "Báo cáo lần 2");
-
-        assertThat(firstStatus).isEqualTo(DailyReportSubmissionStatus.SAVED);
-        assertThat(secondStatus).isEqualTo(DailyReportSubmissionStatus.SAVED);
-        verify(dailyReportRepository, org.mockito.Mockito.times(2))
-                .save(org.mockito.ArgumentMatchers.any(DailyReport.class));
+        verifyNoInteractions(userRepository, reportRepository);
     }
 
     @Test
-    void shouldFindLatestReportForTelegramUser() {
-        DailyReport dailyReport = new DailyReport();
-        when(dailyReportRepository.findFirstByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L))
-                .thenReturn(Optional.of(dailyReport));
+    void shouldRejectSubmissionWhenUserIsMissing() {
+        when(userRepository.findInternalIdByTelegramUserId(12345L)).thenReturn(Optional.empty());
 
-        Optional<DailyReport> latestReport = service.findLatestForTelegramUser(12345L);
+        assertThat(service.submitToday(12345L, "Hoàn thành API"))
+                .isEqualTo(DailyReportSubmissionStatus.TELEGRAM_USER_NOT_FOUND);
 
-        assertThat(latestReport).containsSame(dailyReport);
-        verify(dailyReportRepository).findFirstByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L);
+        verify(reportRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void shouldFindRecentReportsForTelegramUser() {
-        DailyReport firstReport = new DailyReport();
-        DailyReport secondReport = new DailyReport();
-        when(dailyReportRepository.findByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L, PageRequest.of(0, 2)))
-                .thenReturn(List.of(firstReport, secondReport));
+    void shouldRejectNewSubmissionForInactiveUser() {
+        User user = activeUser(7L, 12345L);
+        user.setStatus(UserStatus.INACTIVE);
+        stubCurrentUser(user);
 
-        List<DailyReport> reports = service.findRecentForTelegramUser(12345L, 2);
+        assertThat(service.submitToday(12345L, "Should not be stored"))
+                .isEqualTo(DailyReportSubmissionStatus.USER_INACTIVE);
 
-        assertThat(reports).containsExactly(firstReport, secondReport);
-        verify(dailyReportRepository)
-                .findByTelegramUser_TelegramUserIdOrderByCreatedAtDesc(12345L, PageRequest.of(0, 2));
+        verify(reportRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void shouldFindReportsForTelegramUserOnDate() {
+    void shouldAllowSubmissionAgainForReactivatedSameUser() {
+        User user = activeUser(7L, 12345L);
+        stubCurrentUser(user);
+
+        assertThat(service.submitToday(12345L, "Back to work"))
+                .isEqualTo(DailyReportSubmissionStatus.SAVED);
+
+        ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
+        verify(reportRepository).save(captor.capture());
+        assertThat(captor.getValue().getUser().getId()).isEqualTo(7L);
+    }
+
+    @Test
+    void shouldAllowMultipleReportsForSameUserAndDate() {
+        User user = activeUser(7L, 12345L);
+        stubCurrentUser(user);
+
+        assertThat(service.submitToday(12345L, "First structured report"))
+                .isEqualTo(DailyReportSubmissionStatus.SAVED);
+        assertThat(service.submitToday(12345L, "Second structured report"))
+                .isEqualTo(DailyReportSubmissionStatus.SAVED);
+
+        ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
+        verify(reportRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(DailyReport::getContent)
+                .containsExactly("First structured report", "Second structured report");
+        assertThat(captor.getAllValues())
+                .extracting(DailyReport::getReportDate)
+                .containsOnly(LocalDate.of(2026, 6, 17));
+    }
+
+    @Test
+    void shouldCaptureOrganizationSeparatelyForEachSubmission() {
+        User user = activeUser(7L, 12345L);
+        user.setDepartmentName("Engineering");
+        user.setUnitName("Platform");
+        stubCurrentUser(user);
+
+        assertThat(service.submitToday(12345L, "Before organization change"))
+                .isEqualTo(DailyReportSubmissionStatus.SAVED);
+        user.setDepartmentName(null);
+        user.setUnitName(null);
+        assertThat(service.submitToday(12345L, "After organization removal"))
+                .isEqualTo(DailyReportSubmissionStatus.SAVED);
+
+        ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
+        verify(reportRepository, times(2)).save(captor.capture());
+        DailyReport first = captor.getAllValues().get(0);
+        DailyReport second = captor.getAllValues().get(1);
+        assertThat(first.getDepartment()).isEqualTo("Engineering");
+        assertThat(first.getUnit()).isEqualTo("Platform");
+        assertThat(second.getDepartment()).isNull();
+        assertThat(second.getUnit()).isNull();
+    }
+
+    @Test
+    void shouldSaveWhenExpectedOwnerStillHasTelegramIdentity() {
+        User user = activeUser(7L, 12345L);
+        when(userRepository.findLockedById(7L)).thenReturn(Optional.of(user));
+
+        assertThat(service.submitToday(
+                12345L,
+                7L,
+                "Previewed report",
+                "Không có",
+                Instant.parse("2026-06-16T17:30:00Z")
+        )).isEqualTo(DailyReportSubmissionStatus.SAVED);
+
+        verify(reportRepository).save(org.mockito.ArgumentMatchers.any(DailyReport.class));
+    }
+
+    @Test
+    void shouldRejectWhenExpectedOwnerWasRemapped() {
+        User user = activeUser(7L, 99999L);
+        when(userRepository.findLockedById(7L)).thenReturn(Optional.of(user));
+
+        assertThat(service.submitToday(
+                12345L,
+                7L,
+                "Stale preview",
+                "Không có",
+                Instant.parse("2026-06-16T17:30:00Z")
+        )).isEqualTo(DailyReportSubmissionStatus.IDENTITY_CHANGED);
+
+        verify(reportRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldSaveStructuredMiniAppDetailsThroughTheSameLockedBoundary() {
+        User user = activeUser(7L, 12345L);
+        user.setFullName("Nguyễn Văn A");
+        stubCurrentUser(user);
+
+        DailyReportSubmissionStatus status = service.submitToday(
+                12345L,
+                new ReportSubmissionDetails("Mini App", "Không có", "Hoàn thành"),
+                Instant.parse("2026-06-16T17:30:00Z")
+        );
+
+        ArgumentCaptor<DailyReport> captor = ArgumentCaptor.forClass(DailyReport.class);
+        verify(reportRepository).save(captor.capture());
+        assertThat(status).isEqualTo(DailyReportSubmissionStatus.SAVED);
+        assertThat(captor.getValue().getContent()).isEqualTo("""
+                Tiêu đề: Mini App
+                Người thực hiện: Nguyễn Văn A
+                Người cùng thực hiện: Không có
+                Nội dung:
+                Hoàn thành""");
+        assertThat(captor.getValue().getPerformer()).isEqualTo("Nguyễn Văn A");
+        assertThat(captor.getValue().getCollaborators()).isEqualTo("Không có");
+    }
+
+    @Test
+    void shouldUseDeterministicQueriesForRecentAndDateSpecificPersonalReads() {
+        DailyReport report = new DailyReport();
         LocalDate reportDate = LocalDate.of(2026, 6, 17);
-        DailyReport firstReport = new DailyReport();
-        DailyReport secondReport = new DailyReport();
-        when(dailyReportRepository.findByTelegramUser_TelegramUserIdAndReportDateOrderByCreatedAtDesc(12345L, reportDate))
-                .thenReturn(List.of(firstReport, secondReport));
+        when(reportRepository.findByUser_TelegramUserIdOrderByCreatedAtDescIdDesc(
+                12345L,
+                org.springframework.data.domain.PageRequest.of(0, 5)
+        )).thenReturn(List.of(report));
+        when(reportRepository.findByUser_TelegramUserIdAndReportDateOrderByCreatedAtDescIdDesc(
+                12345L,
+                reportDate
+        ))
+                .thenReturn(List.of(report));
 
-        List<DailyReport> reports = service.findForTelegramUserOnDate(12345L, reportDate);
-
-        assertThat(reports).containsExactly(firstReport, secondReport);
-        verify(dailyReportRepository)
-                .findByTelegramUser_TelegramUserIdAndReportDateOrderByCreatedAtDesc(12345L, reportDate);
+        assertThat(service.findRecentForTelegramUser(12345L, 5)).containsExactly(report);
+        assertThat(service.findForTelegramUserOnDate(12345L, reportDate)).containsExactly(report);
+        verify(reportRepository).findByUser_TelegramUserIdOrderByCreatedAtDescIdDesc(
+                12345L,
+                org.springframework.data.domain.PageRequest.of(0, 5)
+        );
+        verify(reportRepository).findByUser_TelegramUserIdAndReportDateOrderByCreatedAtDescIdDesc(
+                12345L,
+                reportDate
+        );
     }
 
-    @Test
-    void shouldReturnEmptyRecentReportsWhenTelegramUserIdIsMissing() {
-        List<DailyReport> reports = service.findRecentForTelegramUser(null, 5);
-
-        assertThat(reports).isEmpty();
-        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
+    private User activeUser(long id, long telegramUserId) {
+        User user = new User();
+        user.setId(id);
+        user.setTelegramUserId(telegramUserId);
+        user.setStatus(UserStatus.ACTIVE);
+        return user;
     }
 
-    @Test
-    void shouldReturnEmptyRecentReportsWhenLimitIsInvalid() {
-        List<DailyReport> reports = service.findRecentForTelegramUser(12345L, 0);
-
-        assertThat(reports).isEmpty();
-        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
-    }
-
-    @Test
-    void shouldReturnEmptyReportsByDateWhenTelegramUserIdIsMissing() {
-        List<DailyReport> reports = service.findForTelegramUserOnDate(null, LocalDate.of(2026, 6, 17));
-
-        assertThat(reports).isEmpty();
-        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
-    }
-
-    @Test
-    void shouldReturnEmptyReportsByDateWhenReportDateIsMissing() {
-        List<DailyReport> reports = service.findForTelegramUserOnDate(12345L, null);
-
-        assertThat(reports).isEmpty();
-        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
-    }
-
-    @Test
-    void shouldReturnEmptyLatestReportWhenTelegramUserIdIsMissing() {
-        Optional<DailyReport> latestReport = service.findLatestForTelegramUser(null);
-
-        assertThat(latestReport).isEmpty();
-        verifyNoInteractions(dailyReportRepository, telegramUserRepository);
+    private void stubCurrentUser(User user) {
+        when(userRepository.findInternalIdByTelegramUserId(user.getTelegramUserId()))
+                .thenReturn(Optional.of(user.getId()));
+        when(userRepository.findLockedById(user.getId())).thenReturn(Optional.of(user));
     }
 }

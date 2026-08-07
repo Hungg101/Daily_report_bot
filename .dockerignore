@@ -2,8 +2,18 @@
 .github
 .vscode
 target
+build
+.gradle
+Dockerfile*
+.dockerignore
+*.jar
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
 
 .env
+/secrets/cloudflare-tunnel-token.txt
 *.log
 *.class
 *.iml

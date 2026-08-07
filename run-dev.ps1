@@ -1,6 +1,5 @@
 param(
-    [string]$EnvFile = ".env",
-    [switch]$SkipEnvCheck
+    [string]$EnvFile = ".env"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,7 +8,6 @@ function Set-EnvironmentFromDotEnv {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
-        Write-Host "No $Path file found. Using existing environment variables and application defaults."
         return
     }
 
@@ -39,37 +37,60 @@ function Set-EnvironmentFromDotEnv {
 
 Set-EnvironmentFromDotEnv -Path $EnvFile
 
-if (-not $SkipEnvCheck) {
-    $requiredVariables = @(
-        "TELEGRAM_BOT_USERNAME",
-        "TELEGRAM_BOT_TOKEN",
-        "SPRING_DATASOURCE_USERNAME",
-        "SPRING_DATASOURCE_PASSWORD"
-    )
+$requiredVariables = @(
+    "TELEGRAM_BOT_USERNAME",
+    "TELEGRAM_BOT_TOKEN",
+    "SPRING_DATASOURCE_PASSWORD",
+    "POSTGRES_SUPERUSER_PASSWORD"
+)
 
-    $missingVariables = $requiredVariables | Where-Object {
-        [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_))
-    }
-
-    if ($missingVariables.Count -gt 0) {
-        Write-Host "Missing required environment variables:" -ForegroundColor Red
-        $missingVariables | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
-        Write-Host ""
-        Write-Host "Create .env from .env.example, fill your local values, then run .\run-dev.ps1 again."
-        exit 1
-    }
+$missingVariables = $requiredVariables | Where-Object {
+    [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_))
 }
 
-if ([string]::IsNullOrWhiteSpace($env:SPRING_DATASOURCE_URL)) {
-    $env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/daily_report_bot"
+if ($missingVariables.Count -gt 0) {
+    throw "Missing required environment variables: $($missingVariables -join ', ')"
 }
 
-Write-Host "Config loaded:"
-Write-Host " - TELEGRAM_BOT_USERNAME=$env:TELEGRAM_BOT_USERNAME"
-Write-Host " - TELEGRAM_BOT_TOKEN=<hidden>"
-Write-Host " - SPRING_DATASOURCE_URL=$env:SPRING_DATASOURCE_URL"
-Write-Host " - SPRING_DATASOURCE_USERNAME=$env:SPRING_DATASOURCE_USERNAME"
+$listenerProcessIds = @(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique)
 
-Write-Host "Starting Daily Report Telegram Bot..."
-Write-Host "Press Ctrl+C to stop."
-mvn spring-boot:run
+if ($listenerProcessIds.Count -gt 1) {
+    throw "Port 8080 has multiple listeners; refusing to stop any process."
+}
+
+if ($listenerProcessIds.Count -eq 1) {
+    $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($listenerProcessIds[0])"
+    $parentProcess = if ($listenerProcess) {
+        Get-CimInstance Win32_Process -Filter "ProcessId = $($listenerProcess.ParentProcessId)"
+    }
+    $isProjectMavenBot = $listenerProcess.Name -eq "java.exe" -and
+        $listenerProcess.CommandLine -like "*com.example.dailyreportbot.DailyReportTelegramBotApplication*" -and
+        $parentProcess.Name -eq "java.exe" -and
+        $parentProcess.CommandLine -like "*org.codehaus.plexus.classworlds.launcher.Launcher*" -and
+        $parentProcess.CommandLine -like "*spring-boot:run*" -and
+        $parentProcess.CommandLine -like "*$PSScriptRoot*"
+
+    if (-not $isProjectMavenBot) {
+        throw "Port 8080 is in use by a process that was not verified as this project's Maven bot; nothing was stopped."
+    }
+
+    Write-Host "Stopping the verified Maven bot for this project..."
+    Stop-Process -Id $listenerProcess.ProcessId
+    Wait-Process -Id $listenerProcess.ProcessId -Timeout 15 -ErrorAction SilentlyContinue
+}
+
+if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue) {
+    throw "The verified Maven bot did not release port 8080; Docker Compose was not started."
+}
+
+Write-Host "Building and starting the Docker Compose stack..."
+Push-Location $PSScriptRoot
+try {
+    docker compose up --build -d
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker Compose could not start the stack."
+    }
+} finally {
+    Pop-Location
+}

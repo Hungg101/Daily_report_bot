@@ -1,6 +1,13 @@
 target/
 *.log
 *.class
+*.jar
+.gradle/
+build/
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
 
 .idea/
 .vscode/
@@ -9,6 +16,7 @@ target/
 .env
 application-local.yml
 src/main/resources/application-local.yml
+/secrets/cloudflare-tunnel-token.txt
 
 # Local project documentation and generated reading pages
 /README.md
@@ -20,3 +28,24 @@ src/main/resources/application-local.yml
 
 # Local development tool binaries and indexes
 /.local-tools/
+/.specify/feature.json
+
+# Keep the repository source-only; reports, specifications, and local demo data stay local.
+*.md
+*.pdf
+*.tex
+*.html
+/final_report/
+/Report_sample.pdf
+/demo_1.html
+/sample_extracted.txt
+/add_mock_reports.py
+/append_latex.py
+/generate_html.py
+/md2tex.py
+/seed-demo-data.ps1
+/clear-dev-data.ps1
+/set-demo-role.ps1
+/specs/
+/.agents/
+/.specify/
