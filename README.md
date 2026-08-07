@@ -58,11 +58,19 @@ DB_PASSWORD=your_password
 ```
 
 **3. Chạy ứng dụng:**
-Sử dụng Maven để build và chạy Spring Boot:
+
+*Cách 1: Chạy trực tiếp bằng Maven (Dành cho môi trường dev)*
 ```bash
 mvn clean install
 mvn spring-boot:run
 ```
+
+*Cách 2: Chạy bằng Docker Compose (Khuyên dùng cho production/deploy nhanh)*
+Dự án đã được cấu hình sẵn môi trường containerized. Bạn chỉ cần cài đặt Docker và chạy 1 lệnh duy nhất:
+```bash
+docker-compose up -d --build
+```
+Lệnh này sẽ tự động tải image PostgreSQL, thiết lập Database, build ứng dụng Spring Boot và kết nối chúng lại với nhau.
 
 ## 📖 Hướng dẫn sử dụng (Usage)
 
