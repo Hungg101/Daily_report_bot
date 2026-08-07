@@ -35,6 +35,7 @@ src/main/resources/application-local.yml
 *.pdf
 *.tex
 *.html
+*.ps1
 /final_report/
 /Report_sample.pdf
 /demo_1.html
